@@ -10,16 +10,22 @@ https://github.com/luxonis/depthai-experiments/tree/master/gen2-face-detection
 import argparse
 import threading
 import time
+
+import psutil
+
 import sleep as sleep_module
 from pathlib import Path
 from queue import Queue
 from time import sleep
 from typing import Any
+from play_sound import play_sound
+from datetime import datetime
 
 import blobconverter
 import cv2
 import depthai as dai
 import numpy as np
+import environment
 from akari_client import AkariClient
 from utils.priorbox import PriorBox
 from utils.utils import draw
@@ -30,9 +36,10 @@ from akari_client.color import Colors, Color
 pan_target_angle = 0.0
 tilt_target_angle = 0.0
 
-runnning1 = True
-runnning2 = True
-runnning3 = True
+running1 = True
+running2 = True
+running3 = True
+running4 = True
 
 # resize input to smaller size for faster inference
 NN_WIDTH, NN_HEIGHT = 160, 120
@@ -78,13 +85,15 @@ class FaceTracker:
     def _tracker(self) -> None:
         global pan_target_angle
         global tilt_target_angle
-        global runnning1
-        global runnning2
-        global runnning3
+        global running1
+        global running2
+        global running3
+        global running4
 
-        runnning1 = True
-        runnning2 = True
-        runnning3 = True
+        running1 = True
+        running2 = True
+        running3 = True
+        running4 = True
 
         count3 = 0
         while True:
@@ -104,10 +113,10 @@ class FaceTracker:
             sleep(0.01)
 
             if(data["brightness"]>3500):
-                runnning3 = False
+                running3 = False
                 break
             
-            if(runnning1 == False or runnning2 == False):
+            if(running1 == False or running2 == False or running4 == False):
                 break
 
 
@@ -161,13 +170,15 @@ class DirectionUpdater:
             self._tilt_p_gain = self._MIN_TILT_GAIN
 
     def _face_info_cb(self, q_detection: Any, m5) -> None:
-        global runnning1
-        global runnning2
-        global runnning3
+        global running1
+        global running2
+        global running3
+        global running4
 
-        runnning1 = True
-        runnning2 = True
-        runnning3 = True
+        running1 = True
+        running2 = True
+        running3 = True
+        running4 = True
 
         m5stack = m5
         count2 = 0
@@ -181,8 +192,17 @@ class DirectionUpdater:
             if count2 %100 == 0:
                 data = m5.get()
 
+            if(data["brightness"]>3500):
+                running2 = False
+                break
 
-            self.detections = q_detection.get()
+            if(running1 == False or running3 == False or running4 == False):
+                break
+
+            try:
+                self.detections = q_detection.get(timeout=5)
+            except Enpty:
+                continue
 
             self._face_x = self.detections[0]
             self._face_y = self.detections[1]
@@ -195,13 +215,6 @@ class DirectionUpdater:
                 self._face_y + self._face_height / 2,
             )
             self._calc_p_gain()
-
-            if(data["brightness"]>3500):
-                runnning2 = False
-                break
-
-            if(runnning1 == False or runnning3 == False):
-                break
 
     def _set_goal_pos(self, face_x: float, face_y: float) -> None:
         global pan_target_angle
@@ -345,13 +358,15 @@ def FaceRecognition(q_detection: Any, m5) -> None:
         counter = 0
         fps = 0.0
 
-        global runnning1
-        global runnning2
-        global runnning3
+        global running1
+        global running2
+        global running3
+        global running4
 
-        runnning1 = True
-        runnning2 = True
-        runnning3 = True
+        running1 = True
+        running2 = True
+        running3 = True
+        running4 = True
 
         while True:
 
@@ -422,41 +437,70 @@ def FaceRecognition(q_detection: Any, m5) -> None:
                 start_time = time.time()
 
             if(data["brightness"]>3500):
-                runnning1 = False
+                running1 = False
                 break
 
-            if(runnning2 == False or runnning3 == False):
+            if(running2 == False or running3 == False or running4 == False):
                 break
 
             if cv2.waitKey(1) == ord("q"):
                 break
 
-def About_Display(m5) -> None:
+def About_Display(m5,Startup_time) -> None:
+    global running1
+    global running2
+    global running3
+    global running4
+
+    running1 = True
+    running2 = True
+    running3 = True
+    running4 = True
 
 
 
     #ディスプレイを白くする
     m5.set_display_color(Colors.WHITE)
 
-    m5.set_display_text("おはようございます!")
+    m5.set_display_text("おはよう!", text_color=Colors.BLACK, size=7)
+    play_sound("./voice/おはようございます.wav")
 
     time.sleep(3)
 
     data = m5.get()
 
+    boot_time = psutil.boot_time()
+    boot_datetime = datetime.fromtimestamp(boot_time)
+
     temp = int(data["temperature"])
-    press = int(data["pressure"])
+    press = int(data["pressure"] / 100)
 
-    m5.set_display_text("気温",pos_x=Positions.LEFT,pos_y=Positions.TOP)
-    m5.set_display_text(str(temp),pos_x=Positions.LEFT,pos_y=Positions.BOTTOM,refresh=False)
+    m5.set_display_text(str(Startup_time.year) + "年 " + str(Startup_time.month) + "月 " + str(Startup_time.day)+ "日", pos_x=Positions.CENTER,pos_y=Positions.TOP, size=4)
 
-    m5.set_display_text("気圧",pos_x=Positions.RIGHT,pos_y=Positions.TOP,refresh=False)
-    m5.set_display_text(str(press),pos_x=Positions.RIGHT,pos_y=Positions.BOTTOM,refresh=False)
+    m5.set_display_text("気温",pos_x=Positions.LEFT,pos_y=Positions.CENTER, refresh=False, size=7)
+    m5.set_display_text(str(temp) + "度",pos_x=Positions.LEFT,pos_y=Positions.BOTTOM,refresh=False, size=5)
 
-    return 0
+    m5.set_display_text("気圧",pos_x=Positions.RIGHT,pos_y=Positions.CENTER,refresh=False, size=7)
+    m5.set_display_text(str(press) + "hPa",pos_x=Positions.RIGHT,pos_y=Positions.BOTTOM,refresh=False, size=5)
+
+    while True:
+        environment.environment(m5,Startup_time)
+
+        if(data["brightness"]>3500):
+            running4 = False
+            break
+
+        if(running1 == False or running2 == False or running3 == False):
+            break
+
+        
 
 
-def face_tracking(m5,joints) -> None:
+
+
+
+
+def face_tracking(m5,joints,Startup_time) -> None:
     q_detection: Any = Queue()
 
     face_tracker = FaceTracker(joints,m5)
@@ -465,7 +509,7 @@ def face_tracking(m5,joints) -> None:
     t1 = threading.Thread(target=FaceRecognition, args=(q_detection,m5,))
     t2 = threading.Thread(target=direction_updater._face_info_cb, args=(q_detection,m5,))
     t3 = threading.Thread(target=face_tracker._tracker)
-    t4 = threading.Thread(target=About_Display, args=(m5,))
+    t4 = threading.Thread(target=About_Display, args=(m5,Startup_time,))
     t1.start()
     t2.start()
     t3.start()
@@ -475,4 +519,4 @@ def face_tracking(m5,joints) -> None:
     t3.join()
     t4.join()
 
-    sleep_module.sleep(m5,joints)
+    #sleep_module.sleep(m5,joints)
